@@ -1,0 +1,129 @@
+# One artist per line. Lines starting with # are ignored.
+# Add or remove freely - the script auto-resolves new entries via Deezer search.
+# After the first run, double-check artist_ids.json for any wrong matches.
+
+A Perfect Circle
+36 Crazyfists
+Bring Me the Horizon
+Poppy
+Ashnikko
+Muse
+Metric
+Jimmy Eat World
+Ludo
+Guster
+Firewater
+Falling in Reverse
+Too Close to Touch
+I See Stars
+Demon Hunter
+Unearth
+All That Remains
+Innerpartysystem
+The Mars Volta
+Eisley
+Garbage
+Blue October
+Dayseeker
+Saves the Day
+Caskets
+American Football
+Paris Texas
+The Audition
+Royksopp
+The Glitch Mob
+People in Planes
+Metallica
+Year Long Disaster
+Blackmill
+Emancipator
+Melanie Martinez
+Purity Ring
+Fang Island
+The Black Keys
+Rock Kills Kid
+The Fully Down
+Dropping Daylight
+Bill Ricchini
+Summer Fiction
+Shybeast
+Protest the Hero
+Fear, and Loathing in Las Vegas
+Babymetal
+Nevertel
+Imminence
+Dream Theater
+Royal Blood
+Death Cab for Cutie
+The Decemberists
+Scary Kids Scaring Kids
+Halifax
+alt-J
+Unlike Pluto
+Kids in the Way
+fun.
+The Format
+Jack's Mannequin
+Tool
+In This Moment
+t.A.T.u.
+Monuments
+The Cardigans
+Blindside
+The Strokes
+Minus the Bear
+Arctic Monkeys
+Rob Zombie
+Vedera
+Hot Problems
+Bilmuri
+Aviva
+Chevelle
+Periphery
+Luna Shadows
+Carpenter Brut
+Perturbator
+Beats Antique
+Dead Brothers
+Halsey
+Bad Omens
+Motionless in White
+Kubbi
+Anamanaguchi
+The Anix
+Set It Off
+Lights
+Coldrain
+Nothing More
+Blind Pilot
+Chiodos
+Alkaline Trio
+Rooney
+Ramona Falls
+Memphis May Fire
+Spoon
+Young the Giant
+Get Scared
+Billie Eilish
+Durand Jones & The Indications
+Pretty Lights
+Nero
+The Chemical Brothers
+The Crystal Method
+The Killers
+Saosin
+Filter
+Fastball
+Semisonic
+Shiny Toy Guns
+Celldweller
+Scandroid
+The Birthday Massacre
+Battles
+Gotye
+Kimbra
+Criteria
+Caribou
+Four Tet
+Fever Ray
+The Black Mages
