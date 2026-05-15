@@ -9,6 +9,13 @@ on:
 permissions:
   contents: write
 
+# Only one run at a time per workflow. Anything that overlaps gets queued.
+# Prevents two concurrent runs from each posting the same alert before
+# either has had a chance to commit the updated seen.json.
+concurrency:
+  group: check-deezer
+  cancel-in-progress: false
+
 env:
   # Opt in to Node.js 24 for JS-based actions (silences the Node 20
   # deprecation warning; GitHub will force this on June 2, 2026 anyway).
