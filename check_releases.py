@@ -24,10 +24,10 @@ from urllib.parse import quote_plus
 import requests
 
 DEEZER_API = "https://api.deezer.com"
-LOOKBACK_DAYS = 14            # Only alert on albums released within this window.
-EMBED_COLOR = 0x9D3AFF        # Discord embed sidebar color.
-DEEZER_DELAY = 0.2            # Seconds between Deezer API calls.
-DISCORD_DELAY = 0.5           # Seconds between Discord posts.
+LOOKBACK_DAYS = 14
+EMBED_COLOR = 0x9D3AFF
+DEEZER_DELAY = 0.2
+DISCORD_DELAY = 0.5
 REQUEST_TIMEOUT = 15
 
 ARTISTS_FILE = "artists.txt"
@@ -64,7 +64,6 @@ def deezer_get(path, params=None):
 
 
 def resolve_artist(name):
-    """Return (deezer_id, canonical_name) or (None, None) if not found."""
     try:
         data = deezer_get("/search/artist", {"q": name, "limit": 1})
     except requests.RequestException as e:
@@ -77,11 +76,8 @@ def resolve_artist(name):
 
 
 def fetch_albums(artist_id):
-    """Fetch up to 200 album entries for an artist (any record_type)."""
     try:
-        data = deezer_get(
-            f"/artist/{artist_id}/albums", {"limit": 200}
-        )
+        data = deezer_get(f"/artist/{artist_id}/albums", {"limit": 200})
     except requests.RequestException as e:
         print(f"  ERROR fetching albums for artist {artist_id}: {e}", file=sys.stderr)
         return []
@@ -95,7 +91,18 @@ def is_recent(release_date_str):
         rd = datetime.strptime(release_date_str, "%Y-%m-%d")
     except ValueError:
         return False
-    return datetime.utcnow() - rd <= timedelta(days=LOOKBACK_DAYS)
+    delta = datetime.utcnow() - rd
+    return timedelta(0) <= delta <= timedelta(days=LOOKBACK_DAYS)
+
+
+def is_future_release(release_date_str):
+    if not release_date_str:
+        return False
+    try:
+        rd = datetime.strptime(release_date_str, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return rd.date() > datetime.utcnow().date()
 
 
 def build_embed(artist_name, album):
@@ -132,6 +139,7 @@ def build_embed(artist_name, album):
 
 
 def post_discord(webhook_url, embed):
+    """Returns True on successful post, False on failure."""
     try:
         r = requests.post(
             webhook_url,
@@ -139,8 +147,10 @@ def post_discord(webhook_url, embed):
             timeout=REQUEST_TIMEOUT,
         )
         r.raise_for_status()
+        return True
     except requests.RequestException as e:
         print(f"  ERROR posting to Discord: {e}", file=sys.stderr)
+        return False
 
 
 def main():
@@ -156,7 +166,6 @@ def main():
     seen_existed = os.path.exists(SEEN_FILE)
     seen = set(load_json(SEEN_FILE, []))
 
-    # Resolve any artists we haven't looked up yet.
     unresolved = [a for a in artists if a not in artist_ids]
     not_found = []
     if unresolved:
@@ -172,11 +181,13 @@ def main():
                 not_found.append(name)
             time.sleep(DEEZER_DELAY)
 
-    # Drop entries no longer in artists.txt so the cache doesn't grow forever.
     artist_ids = {k: v for k, v in artist_ids.items() if k in artists}
     save_json(IDS_FILE, artist_ids)
 
     # Walk every artist; collect any album we haven't seen before.
+    # IMPORTANT: for albums we intend to alert on, we defer adding to
+    # seen_after until AFTER a successful Discord post, so a transient
+    # post failure can be retried on the next run.
     new_albums = []
     seen_after = set(seen)
     print(f"Checking {sum(1 for v in artist_ids.values() if v)} resolved artist(s)...")
@@ -190,21 +201,27 @@ def main():
             album_id = str(album.get("id"))
             if not album_id:
                 continue
-            seen_after.add(album_id)
+            release_date_str = album.get("release_date")
+            if is_future_release(release_date_str):
+                seen_after.discard(album_id)
+                print(
+                    f"  Skipping future release: {name} - "
+                    f"{album.get('title')} ({release_date_str})"
+                )
+                continue
             if album_id in seen:
                 continue
-            # Don't post if there was no prior baseline state; don't post old
-            # back-catalog entries that just happened to surface today.
             if not seen_existed:
+                seen_after.add(album_id)
                 continue
-            if not is_recent(album.get("release_date")):
+            if not is_recent(release_date_str):
+                seen_after.add(album_id)
                 continue
             new_albums.append((name, album))
         time.sleep(DEEZER_DELAY)
 
-    save_json(SEEN_FILE, sorted(seen_after))
-
     if not seen_existed:
+        save_json(SEEN_FILE, sorted(seen_after))
         print(
             f"First run: recorded {len(seen_after)} albums as baseline. "
             "No alerts sent. Future runs will post about new releases only."
@@ -218,14 +235,35 @@ def main():
     if not new_albums:
         print(f"No new albums in the last {LOOKBACK_DAYS} days.")
     else:
-        print(f"Found {len(new_albums)} new album(s). Posting to Discord...")
+        # Dedupe within this run by (artist, title, release_date).
+        seen_in_run = set()
+        unique_albums = []
         for name, album in new_albums:
+            key = (
+                name.lower(),
+                (album.get("title") or "").lower(),
+                album.get("release_date") or "",
+            )
+            if key in seen_in_run:
+                print(f"  Skipping duplicate in run: {name} - {album.get('title')}")
+                seen_after.add(str(album["id"]))
+                continue
+            seen_in_run.add(key)
+            unique_albums.append((name, album))
+
+        print(f"Found {len(unique_albums)} new album(s). Posting to Discord...")
+        for name, album in unique_albums:
             print(
-                f"  -> {name} — {album.get('title')} "
+                f"  -> {name} - {album.get('title')} "
                 f"(released {album.get('release_date')})"
             )
-            post_discord(webhook, build_embed(name, album))
+            if post_discord(webhook, build_embed(name, album)):
+                seen_after.add(str(album["id"]))
+            else:
+                print("     (NOT marking as seen due to failed post; will retry next run)")
             time.sleep(DISCORD_DELAY)
+
+    save_json(SEEN_FILE, sorted(seen_after))
 
     if not_found:
         print(f"\nArtists Deezer couldn't resolve ({len(not_found)}):")
