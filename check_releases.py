@@ -4,7 +4,8 @@ Deezer album-release alerter.
 
 Watches a list of artists (artists.txt) and posts to a Discord webhook
 when any of them release a new album. Singles, EPs, and compilations are
-filtered out via Deezer's `record_type` field.
+filtered out via Deezer's record_type field PLUS additional checks for
+guest appearances and releases that are tagged as albums but look like EPs.
 
 State files (committed back to the repo by the GitHub Actions workflow):
   - artists.txt        Input. One artist name per line.
@@ -29,6 +30,13 @@ EMBED_COLOR = 0x9D3AFF
 DEEZER_DELAY = 0.2
 DISCORD_DELAY = 0.5
 REQUEST_TIMEOUT = 15
+
+# Filter out releases tagged as record_type "album" that look like EPs.
+# Default minimum is MIN_TRACKS. A SHORT_ALBUM_MIN_TRACKS-track release
+# still passes if its total runtime is at least SHORT_ALBUM_MIN_DURATION_SEC.
+MIN_TRACKS = 6
+SHORT_ALBUM_MIN_TRACKS = 5
+SHORT_ALBUM_MIN_DURATION_SEC = 30 * 60
 
 ARTISTS_FILE = "artists.txt"
 IDS_FILE = "artist_ids.json"
@@ -82,6 +90,16 @@ def fetch_albums(artist_id):
         print(f"  ERROR fetching albums for artist {artist_id}: {e}", file=sys.stderr)
         return []
     return data.get("data") or []
+
+
+def fetch_album_details(album_id):
+    """Fetch full album object (includes nb_tracks, duration, primary artist).
+    Returns None on failure so the caller can defer marking as seen."""
+    try:
+        return deezer_get(f"/album/{album_id}")
+    except requests.RequestException as e:
+        print(f"  ERROR fetching album {album_id}: {e}", file=sys.stderr)
+        return None
 
 
 def is_recent(release_date_str):
@@ -216,6 +234,49 @@ def main():
                 continue
             if not is_recent(release_date_str):
                 seen_after.add(album_id)
+                continue
+            # Extra validation: fetch full album details for primary-artist
+            # check and EP-vs-album track count check. Costs one extra API
+            # call per candidate (handful per week, totally fine).
+            details = fetch_album_details(album_id)
+            time.sleep(DEEZER_DELAY)
+            if details is None:
+                # Couldn't fetch -- skip without marking as seen so we
+                # retry next run.
+                print(
+                    f"  Skipping (details fetch failed): {name} - "
+                    f"{album.get('title')}"
+                )
+                continue
+            # Primary artist check: skip guest appearances / compilations
+            # where the album's main artist is someone other than us.
+            primary = details.get("artist") or {}
+            primary_id = primary.get("id")
+            if primary_id and str(primary_id) != str(aid):
+                seen_after.add(album_id)
+                print(
+                    f"  Skipping guest appearance: {name} on "
+                    f"{album.get('title')} (primary artist: "
+                    f"{primary.get('name', 'unknown')})"
+                )
+                continue
+            # Track count + duration check: catches releases tagged as
+            # album but really EPs. 6+ tracks always pass. 5 tracks pass
+            # only if total duration is at least 30 minutes.
+            nb_tracks = details.get("nb_tracks") or 0
+            duration_sec = details.get("duration") or 0
+            too_few_tracks = nb_tracks < SHORT_ALBUM_MIN_TRACKS
+            too_short_for_borderline = (
+                nb_tracks < MIN_TRACKS
+                and duration_sec < SHORT_ALBUM_MIN_DURATION_SEC
+            )
+            if too_few_tracks or too_short_for_borderline:
+                seen_after.add(album_id)
+                print(
+                    f"  Skipping likely EP: {name} - "
+                    f"{album.get('title')} ({nb_tracks} tracks, "
+                    f"{duration_sec // 60} min)"
+                )
                 continue
             new_albums.append((name, album))
         time.sleep(DEEZER_DELAY)
